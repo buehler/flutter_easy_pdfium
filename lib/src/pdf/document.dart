@@ -7,9 +7,11 @@ import 'package:flutter_pdfium/flutter_pdfium.dart';
 
 import '../utils/isolate.dart';
 import '../utils/lazy.dart';
+import 'bookmark.dart';
 import 'errors.dart';
 import 'page.dart';
 import 'pdfium.dart';
+import 'search.dart';
 
 final class Document {
   final FPDF_DOCUMENT _pointer;
@@ -86,24 +88,31 @@ final class Document {
 
         for (final (bookmarkPointer, level)
             in iterateChildren(ffi.nullptr, 0)) {
-          final titleLength =
-              pdfium().Bookmark_GetTitle(bookmarkPointer, ffi.nullptr, 0);
-          final title = using((arena) {
-            final dataBuffer = arena<ffi.Uint16>(titleLength);
-            pdfium().Bookmark_GetTitle(
-                bookmarkPointer, dataBuffer.cast<ffi.Void>(), titleLength);
-            return dataBuffer.cast<Utf16>().toDartString();
-          }, malloc);
-
-          final dest = pdfium().Bookmark_GetDest(_pointer, bookmarkPointer);
-
-          yield Bookmark._(
-            title: title,
-            pageIndex: pdfium().Dest_GetDestPageIndex(_pointer, dest),
-            depth: level,
-          );
+          yield createBookmark(_pointer, bookmarkPointer, level);
         }
       });
+
+  Future getBookmarkLocation(Bookmark bookmark) async =>
+      pdfWorker.compute(() {});
+
+  Stream<DocumentSearchResult> search(String text,
+      {bool matchCase = false, bool matchWholeWord = false}) async* {
+    if (text.trim().isEmpty) {
+      return;
+    }
+
+    yield* pdfWorker.computeStream(() async* {
+      var pageIndex = 0;
+      await for (final page in pages) {
+        for (final result in executePageSearch(
+            getPagePointer(page), page.pixelSize,
+            text: text, matchCase: matchCase, matchWholeWord: matchWholeWord)) {
+          yield DocumentSearchResult.fromPageResult(result, pageIndex);
+        }
+        pageIndex++;
+      }
+    });
+  }
 
   /// Close the document and release all resources.
   void close() {
@@ -115,19 +124,4 @@ final class Document {
 
   @override
   String toString() => 'Document{pageCount: $pageCount}';
-}
-
-final class Bookmark {
-  final String title;
-  final int pageIndex;
-  final int depth;
-
-  const Bookmark._({
-    required this.title,
-    required this.pageIndex,
-    required this.depth,
-  });
-
-  @override
-  String toString() => 'Bookmark "$title" on page ${pageIndex + 1}';
 }

@@ -3,9 +3,11 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter_easy_pdfium/src/pdf/search.dart';
 import 'package:flutter_pdfium/flutter_pdfium.dart';
 
 import '../utils/isolate.dart';
+import '../utils/lazy.dart';
 import 'errors.dart';
 import 'pdfium.dart';
 
@@ -34,18 +36,42 @@ enum PageRenderRotation {
 
 final class Page {
   final FPDF_PAGE _pointer;
+  final AsyncLazy<int> _characterCount;
+
   final Size size;
 
   Page._(this._pointer)
       : size = Size(
           pdfium().GetPageWidthF(_pointer),
           pdfium().GetPageHeightF(_pointer),
-        );
-
-  Size get pixelSize => (size / 72.0) * _baseDpi * _ratio;
+        ),
+        _characterCount = AsyncLazy(() => pdfWorker.compute(() {
+              final textPointer = pdfium().Text_LoadPage(_pointer);
+              final result = pdfium().Text_CountChars(textPointer);
+              pdfium().Text_ClosePage(textPointer);
+              return result;
+            }));
 
   double get _ratio =>
       WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio;
+
+  Size get pixelSize => (size / 72.0) * _baseDpi * _ratio;
+
+  Future<int> get characterCount async => await _characterCount();
+
+  Stream<PageSearchResult> search(String text,
+      {bool matchCase = false, bool matchWholeWord = false}) async* {
+    if (text.trim().isEmpty) {
+      return;
+    }
+
+    yield* pdfWorker.computeStream(() async* {
+      for (final result in executePageSearch(_pointer, pixelSize,
+          text: text, matchCase: matchCase, matchWholeWord: matchWholeWord)) {
+        yield result;
+      }
+    });
+  }
 
   /// Renders the page as a raw [ui.Image]. The returned image is parsed
   /// by flutters native image codec. The received image must be disposed
@@ -118,3 +144,5 @@ Future<Page> loadPage(FPDF_DOCUMENT document, int index) =>
 
 Future closePage(Page page) =>
     pdfWorker.compute(() => pdfium().ClosePage(page._pointer));
+
+FPDF_PAGE getPagePointer(Page page) => page._pointer;

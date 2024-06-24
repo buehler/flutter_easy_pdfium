@@ -19,8 +19,10 @@ class _PageRendererState extends State<PageRenderer> {
 
   @override
   void initState() {
-    widget.page.renderImage().then((image) =>
-        !_disposed ? setState(() => _image = image) : image.dispose());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.page.renderImage().then((image) =>
+          !_disposed ? setState(() => _image = image) : image.dispose());
+    });
     super.initState();
   }
 
