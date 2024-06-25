@@ -1,8 +1,9 @@
 import 'package:fluorflow/annotations.dart';
 import 'package:fluorflow/fluorflow.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_easy_pdfium/pdf.dart';
+import 'package:flutter_easy_pdfium/pdf.dart' as pdf;
 import 'package:flutter_easy_pdfium/widgets.dart';
+
 import 'in_memory_viewmodel.dart';
 
 @Routable(
@@ -40,18 +41,21 @@ final class InMemoryView extends FluorFlowView<InMemoryViewModel> {
                   builder: (context, _) =>
                       switch ((viewModel.busy, viewModel.data)) {
                         (true, _) => const CircularProgressIndicator(),
-                        (_, final Document doc) => SingleChildScrollView(
+                        (_, final pdf.Document doc) => SingleChildScrollView(
                             padding: const EdgeInsets.only(
                                 left: 16, right: 16, bottom: 32),
-                            child: FutureBuilder(
-                              future: doc.pages
-                                  .map((p) => PageRenderer(p))
-                                  .toList(),
-                              builder: (context, snapshot) => snapshot.hasData
-                                  ? Column(
-                                      children: snapshot.requireData,
-                                    )
-                                  : const CircularProgressIndicator(),
+                            child: AccumulatingStreamBuilder(
+                              stream: doc.pages,
+                              builder: (context, snapshot) =>
+                                  switch (snapshot.data) {
+                                List<pdf.Page> pages => Column(
+                                    children: [
+                                      for (final (i, page) in pages.indexed)
+                                        PageRenderer(page, key: Key('page_$i')),
+                                    ],
+                                  ),
+                                _ => const CircularProgressIndicator(),
+                              },
                             ),
                           ),
                         _ => const Text('No document loaded'),
